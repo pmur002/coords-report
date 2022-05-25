@@ -1,0 +1,1019 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html>
+  <head>
+    <style type="text/css">
+    @media print {
+      body { }
+      p.img { text-align: center; page-break-inside: avoid }
+      img.CC { display: inline }
+    }
+    @media screen {
+      body { max-width: 800px; margin: auto }
+      p.img { text-align: center }
+      img.CC { display: inline }
+    }
+    p.date {
+      font-size: smaller;
+      margin: 0;
+    }
+    p.versionHistory {
+      color: gray
+    }
+    p.versionHistory a {
+      color: gray
+    }
+    p.ref {
+      text-indent: -2em;
+      padding-left: 2em;
+    }
+    p.fig {
+      text-align: left;
+    }
+    p.fig img, img.plot {
+      box-shadow: 10px 10px 20px;
+      margin-top: 10px;
+      margin-bottom: 20px;      
+    }
+  </style>
+  </head>
+  <body>
+    <h1>Constructive Geometry for Complex Grobs</h1>
+    <p>
+      <span style="font-style: italic">by Paul Murrell</span>
+      <a href="http://orcid.org">
+        <img alt="" src="https://www.stat.auckland.ac.nz/~paul/ORCID/ORCiD.png" style="width: 16px; height: 16px; vertical-align: middle"/>
+      </a>
+      <span style="font-family: mono; font-size: small">
+        <a href="http://orcid.org/0000-0002-3224-8858">http://orcid.org/0000-0002-3224-8858</a>
+      </span>
+    </p>
+    <p class="date">
+    Version 1:  
+    <rcode echo="FALSE" results="asis"><![CDATA[
+cat(format(Sys.Date(), "%A %d %B %Y"))
+    ]]></rcode>
+  </p>
+    <rcode id="init" echo="FALSE" message="FALSE" results="hide"><![CDATA[
+opts_chunk$set(comment=" ", tidy=FALSE, 
+               dev="png", ## dev="svg",
+               dpi=96)
+options(width=100)
+## For wonky desktop set up
+options(bitmapType="cairo")
+  ]]></rcode>
+    <rcode echo="FALSE" message="FALSE"><![CDATA[
+    library(grid)
+  ]]></rcode>
+    <hr/>
+    <p><a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img class="CC" alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png"/></a><br/><span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">This document</span>
+    by <span xmlns:cc="http://creativecommons.org/ns#" property="cc:attributionName">Paul
+    Murrell</span> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative
+    Commons Attribution 4.0 International License</a>.
+  </p>
+    <hr/>
+    <p>
+    This document describes developments in the 
+    <code>grobCoords()</code> function in the R package 'grid', plus
+    improvements to the 'gridGeometry' package that makes use of
+    the <code>grobCoords()</code> function.
+  </p>
+    <p>
+    These features are available in the development version of R 
+    (to become 4.2.0) and in 'gridGeometry' version 0.3-0.
+  </p>
+    <div>
+      <h2>Table of Contents:</h2>
+      <ul style="list-style: none">
+        <li>
+          <a href="#intro">1. Introduction</a>
+        </li>
+        <li>
+          <a href="#grobCoords">2. Improving grobCoords()</a>
+        </li>
+        <li>
+          <a href="#gridGeometry">3. Improving 'gridGeometry'</a>
+        </li>
+        <li>
+          <a href="#gridinternals">4. More information about the changes to grobCoords()</a>
+        </li>
+        <li>
+          <a href="#gridgeometryinternals">5. More information about the changes to 'gridGeometry'</a>
+        </li>
+        <li>
+          <a href="#discussion">6. Discussion</a>
+        </li>
+        <li>
+          <a href="#requirements">7. Technical requirements</a>
+        </li>
+        <li>
+          <a href="#Resources">8. Resources</a>
+        </li>
+        <li>
+          <a href="#references">9. References</a>
+        </li>
+      </ul>
+    </div>
+    <h2>
+      <a name="intro">1. Introduction</a>
+    </h2>
+    <p>
+    The <code>grobCoords()</code> function (introduced in R version 3.6.0)
+    generates a set of coordinates from a 'grid' grob.
+    For example, the following code defines a 
+    'grid' rectangle grob (and draws it) then calculates
+    a set of coordinates
+    from this rectangle grob (the vertices of the rectangle).
+    The rectangle is centred 1 inch in from the 
+    left of the image and 1 inch up form the bottom of the image
+    and is 1 inch square, so the vertices are at
+    (0.5, 0.5), (0.5, 1.5), (1.5, 1.5), and (1.5, 0.5).
+  </p>
+    <rcode><![CDATA[
+library(grid)
+  ]]></rcode>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+rectangle <- rectGrob(1, 1, 1, 1, default.units = "in", name = "r")
+grid.draw(rectangle)
+  ]]></rcode>
+    <p>
+  </p>
+    <rcode><![CDATA[
+coords <- grobCoords(rectangle, closed = TRUE)
+coords
+  ]]></rcode>
+    <p>
+    The 'gridGeometry' package (<a href="#pkg:gridGeometry">Murrell, 2022</a>) 
+    combines 'grid' grobs using
+    operators like "union" and "intersection".  
+    For example, in the following code we define a triangle shape 
+    (and draw it) then we call <code>grid.polyclip()</code> from 'gridGeometry'
+    to draw the union of the rectangle from above with this triangle.
+  </p>
+    <rcode><![CDATA[
+library(gridGeometry)
+  ]]></rcode>
+    <rcode fig.width="2.5" fig.height="2"><![CDATA[
+triangle <- polygonGrob(c(1, 2, 2), c(1, 1.5, .5), default.units="in")
+grid.draw(triangle)
+  ]]></rcode>
+    <rcode fig.width="2.5" fig.height="2"><![CDATA[
+grid.polyclip(rectangle, triangle, "union")
+  ]]></rcode>
+    <p>
+    The 'gridGeometry' package works by getting coordinates for each
+    grob, via <code>grobCoords()</code>, and combining those coordinates
+    using the 'polyclip' package (<a href="#pkg:polyclip">Johnson and Baddeley, 2019</a>).
+    Any changes to the <code>grobCoords()</code> function require changes to 
+    the 'gridGeometry' package.
+  </p>
+    <p>
+    The examples above are straightforward because, in the first 
+    case, we calculated coordinates from a grob that draws a single
+    shape, so the result was a single set of (x, y) coordinates.
+    In the second case, we combined two grobs that both draw a
+    single shape, so 'gridGeometry' only had to combine one shape
+    with another.
+  </p>
+    <p>
+    This report explores scenarios that are more complex, where
+    we want to use <code>grobCoords()</code>
+    to obtain the coordinates for a grob that draws more than one shape
+    and where we want to use 'gridGeometry' to combine grobs that each
+    draw more than one shape.
+  </p>
+    <h2>
+      <a name="grobCoords">2. Improving <code>grobCoords()</code></a>
+    </h2>
+    <p>
+    Before we consider more complex scenarios, we need to take a closer
+    look at the coordinates generated for a grob that draws a single shape
+    (shown again below).
+  </p>
+    <rcode><![CDATA[
+coords
+  ]]></rcode>
+    <p>
+    We have a single set of (x, y) coordinates (four points representing
+    the vertices of the rectangle), but we can also see that those
+    coordinates belong to "shape 1" and that shape belongs to "grob r".
+    The "r" comes from the <code>name</code> argument that we 
+    supplied in the original call to <code>rectGrob()</code>.
+  </p>
+    <p>
+    This simple example demonstrates one of the changes to 
+    <code>grobCoords()</code> in R 4.2.0:  the return value used to 
+    be just a list of lists with components <code>x</code> and <code>y</code>
+    (a list of "xy-lists"),
+    but now the return value is a
+    "GridGrobCoords" object, with additional information (such as names),
+    and a print method.
+  </p>
+    <rcode><![CDATA[
+class(coords)
+  ]]></rcode>
+    <p>
+    That additional information becomes more important when 
+    we work with a grob that draws more than one shape.
+    For example, the following code defines a grob that draws 
+    two rectangles (and draws them) and then calculates the
+    coordinates from that grob.  The result shows coordinates
+    for two shapes, both of which belong to "grob r2".
+  </p>
+    <rcode fig.width="3.5" fig.height="2"><![CDATA[
+rectangles <- rectGrob(c(1, 2.5), 1, 1, 1, default.units = "in", name = "r2")
+grid.draw(rectangles)
+  ]]></rcode>
+    <rcode><![CDATA[
+grobCoords(rectangles, closed = TRUE)
+  ]]></rcode>
+    <p>
+    The following code demonstrates a different scenario.
+    Here we define a path grob that consists of two rectangles,
+    but the two rectangles together define a single shape;
+    the inner rectangle creates a hole in the outer rectangle.
+    There are two sets of (x, y) coordinates again, but this time
+    they both belong to "shape 1".  We can also see that the 
+    fill rule ("evenodd") has been recorded in the "GridGrobCoords"
+    object.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+x <- c(.5, .5, 1.5, 1.5, .75, .75, 1.25, 1.25)
+y <- c(.5, 1.5, 1.5, .5, .75, 1.25, 1.25, .75)
+path <- pathGrob(x, y, 
+                 id = rep(1:2, each=4), rule = "evenodd",
+                 default.units = "in", name = "p",
+                 gp = gpar(fill = "grey"))
+grid.draw(path)
+  ]]></rcode>
+    <rcode><![CDATA[
+grobCoords(path, closed = TRUE)
+  ]]></rcode>
+    <p>
+    Of course, it is also possible to have a grob that describes
+    multiple paths, each of which consists of multiple sets of 
+    coordinates, as shown below.  In this case we have a path
+    grob that describes two shapes, each of which consists of
+    two rectangles, with an inner rectangle that creates a hole
+    in an outer rectangle.  There are four sets of coordinates
+    corresponding to the four rectangles, but two sets of coordinates
+    belong to shape 1 and two sets of coordinates belong to shape 2.
+  </p>
+    <rcode fig.width="3.5" fig.height="2"><![CDATA[
+paths <- pathGrob(c(x, x + 1.5), c(y, y),
+                  id = rep(rep(1:2, each=4), 2), 
+                  pathId = rep(1:2, each=8), rule = "evenodd",
+                  default.units = "in", name = "p2",
+                  gp = gpar(fill = "grey"))
+grid.draw(paths)
+  ]]></rcode>
+    <rcode><![CDATA[
+grobCoords(paths, closed = TRUE)
+  ]]></rcode>
+    <p>
+    We can add another level of complexity by considering 'grid' gTrees,
+    which are collections of grobs.
+    For example, the following code defines a gTree consisting
+    of a rectangle and a path, draws the gTree, and calculates
+    its coordinates.  The result has an extra level:
+    one set of coordinates belongs to a "shape 1" that belongs
+    to "grob r", two other sets of coordinates belong to a "shape 1"
+    that belongs to "grob p3", and both "grob r" and "grob p3" 
+    belong to "gTree parent".
+  </p>
+    <rcode fig.width="3.5" fig.height="2"><![CDATA[
+path2 <- pathGrob(x + 1.5, y, 
+                 id = rep(1:2, each=4), rule = "evenodd",
+                 default.units = "in", name = "p3",
+                 gp = gpar(fill = "grey"))
+gt <- gTree(children=gList(rectangle, path2), name = "parent")
+grid.draw(gt)
+  ]]></rcode>
+    <rcode fig.keep="none"><![CDATA[
+grobCoords(gt, closed = TRUE)
+  ]]></rcode>
+    <p>
+    We could keep going and add further layers, 
+    because the children of a gTree can themselves
+    be gTrees, but hopefully it is now clear how that would go.
+    We will turn instead to an example of how the coordinates
+    from <code>grobCoords()</code>
+    can be used, by looking at the latest changes to the
+    'gridGeometry' package.
+  </p>
+    <h2>
+      <a name="gridGeometry">3. Improving 'gridGeometry'</a>
+    </h2>
+    <p>
+    As we saw at the start, the 'gridGeometry' package can
+    be used to combine grobs.  The following code shows another
+    simple example where we create a new shape by subtracting a
+    circle from a rectangle.  We first draw the two grobs 
+    separately to show what they look like and then we draw the
+    result of the rectangle "minus" the circle.  We fill the 
+    result with grey to show that the circle has punched a hole
+    in the rectangle.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+circle <- circleGrob(1, 1, r = .3, 
+                     default.units = "in", gp=gpar(fill = NA))
+grid.draw(rectangle)
+grid.draw(circle)
+  ]]></rcode>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(rectangle, circle, "minus", 
+              gp=gpar(fill = "grey"))
+  ]]></rcode>
+    <p>
+    The following code demonstrates a more complex scenario with a 
+    circle grob that draws three circles. 
+    We first draw the circles on top of the rectangle to show the
+    shapes that we are dealing with.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+circle <- circleGrob(c(.5, 1, 1.5), 1, r = .3, 
+                     default.units = "in", gp=gpar(fill = NA))
+grid.draw(rectangle)
+grid.draw(circle)
+  ]]></rcode>
+    <p>
+    When we subtract this circle
+    grob from the rectangle grob, the result
+    is obtained by first "reducing" the three circles to a single shape
+    and then
+    subtracting that result from the rectangle.      
+    The result in this case is the rectangle with the three circles
+    removed from it.  More accurately, the result is the
+    rectangle with the <em>union</em> of the three circles 
+    subtracted from it.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(rectangle, circle, "minus", 
+              gp=gpar(fill = "grey"))
+  ]]></rcode>
+    <p>
+    When we give <code>grid.polyclip()</code> a grob that draws multiple shapes,
+    the grob is first reduced to a single shape before being combined
+    with the other argument.  
+    By default, this reduction occurs by using <code>polyclip()</code>
+    to combine the shapes using a "union" operator.
+    In the example above, the three circles are reduced via "union" 
+    to the single shape below.
+  </p>
+    <rcode fig.width="2" fig.height="2" echo="FALSE"><![CDATA[
+grid.reduce(circle, "union")
+  ]]></rcode>
+    <p>
+    There are two new arguments to <code>grid.polyclip()</code>, 
+    <code>reduceA</code> and <code>reduceB</code>, which
+    can be used to control how multiple shapes are reduced to a single shape.
+    For example, the following code reduces the three circles
+    using "xor" before subtracting them from the rectangle.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(rectangle, circle, "minus", reduceB = "xor", 
+              gp=gpar(fill = "grey"))
+  ]]></rcode>
+    <p>
+    There is also a new function, <code>grid.reduce()</code>, that just performs
+    this grob reduction.  This function
+    takes a grob and reduces it a new grob that describes a single
+    shape (either a path or a line).
+    For example, the following code reduces the grob that
+    draws three circles into a single shape using "xor".
+    The grey filled area below is the shape that was subtracted from
+    the rectangle to produce the <code>grid.polyclip()</code> 
+    result above.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.reduce(circle, "xor", gp=gpar(fill="grey"))
+  ]]></rcode>
+    <p>
+    In the more complex example above, only the second argument
+    to <code>grid.polyclip()</code> was a grob that
+    draws more than one shape.  It is also possible for the 
+    first argument to <code>grid.polyclip()</code> to be a grob that draws
+    more than one shape and it is possible for either or both arguments
+    to be gTrees.
+    In the case of gTrees, each child grob is reduced 
+    and then all of the reduced children are reduced together.
+  </p>
+    <p>
+    The following example provides a demonstration of collapsing a more
+    complex grob.  For this example, we will work with the SVG 
+    version of the R logo (shown below).
+  </p>
+    <p>
+      <img src="Rlogo.svg" width="200" alt="The R logo"/>
+    </p>
+    <p>
+    The following code uses the 'grImport2' package 
+    (<a href="#pkg:grImport2">Potter and Murrell, 2019</a>) to
+    import the R logo into a 'grid' gTree.
+    We create a gTree that will just draw the outlines
+    of the imported logo and fill it with a semitrasparent grey.
+    The 'rsvg' package 
+    (<a href="#pkg:rsvg">Ooms, 2022</a>) is used to convert the original SVG logo
+    into a Cairo graphics version in preparation for import.
+  </p>
+    <rcode message="FALSE"><![CDATA[
+library(rsvg)
+rsvg_svg("Rlogo.svg", "Rlogo-cairo.svg")
+library(grImport2)
+Rlogo <- readPicture("Rlogo-cairo.svg")
+semigrey <- rgb(.5, .5, .5, .5)
+logoGrob <- pictureGrob(Rlogo, 
+                        gpFUN = function(gp) gpar(col="black", fill=semigrey))
+  ]]></rcode>
+    <p>
+    The resulting gTree contains another gTree, which contains 
+    two further gTrees ("picComplexPath" gTrees), each of which contains 
+    two grobs (a "picPath" grob and a "picPolyline" grob).
+  </p>
+    <rcode><![CDATA[
+grid.ls(logoGrob)
+  ]]></rcode>
+    <p>
+    Drawing the logo shows that there are two main shapes in the logo,
+    the "R" itself and the ellipse that encircles the top of the "R"
+    and that both of those shapes consist of two curves with the 
+    inner curve creating a hole in the outer curve.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.draw(logoGrob)
+  ]]></rcode>
+    <p>
+    The following code calls <code>xyListFromGrob()</code> to convert
+    that complicated gTree to a single shape using the default 
+    "union" operator).  This forms the union of the "R" shape with the ellipse
+    shape.
+    We then convert the result back to a path grob with
+    <code>xyListToPath()</code> 
+    and draw it.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.reduce(logoGrob, gp=gpar(fill="grey"))
+  ]]></rcode>
+    <p>
+    The following code "xor"s the R logo gTree
+    with the rectangle that we used in
+    previous examples.  This implicitly performs the reduction of
+    the R logo (that we just did explicitly)
+    before subtracting it from the rectangle.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(rectangle, logoGrob, "xor", gp=gpar(fill="grey"))
+  ]]></rcode>
+    <h3>Combining "open" shapes</h3>
+    <p>
+    All of the examples so far have involved "closed" shapes - shapes
+    that have an interior that can be filled, like polygons and paths.
+    It is also possible for the <code>A</code> argument to 
+    <code>grid.polyclip()</code> to be an "open" shape, like a line
+    segment or a Bezier curve.
+  </p>
+    <p>
+    The following code demonstrates a simple example where we subtract
+    a single circle from a single line segment.  As before, we first
+    draw both shapes separately and then we draw the result
+    of <code>grid.polyclip()</code>.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+line <- segmentsGrob()
+circle <- circleGrob(1, 1, r = .3, 
+                     default.units = "in", gp=gpar(fill = NA))
+grid.draw(circle)
+grid.draw(line)
+  ]]></rcode>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(line, circle, "minus")
+  ]]></rcode>
+    <p>
+    The next example shows what
+    happens when we have multiple shapes from an open grob.
+    In this case we have a segments grob that draws two lines
+    that criss-cross each other and we are subtracting a single circle.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+lines <- segmentsGrob(0:1, 0, 1:0, 1)
+circle <- circleGrob(1, 1, r = .3, 
+                     default.units = "in", gp=gpar(fill = NA))
+grid.draw(circle)
+grid.draw(lines)
+  ]]></rcode>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(lines, circle, "minus")
+  ]]></rcode>
+    <p>
+    Although that result may be what we expected, it hides a 
+    detail about how the <code>A</code> argument is reduced.
+    This result does <em>not</em> come from reducing
+    the two line segments with a "union" operator
+    (the default that we saw happening for the <code>B</code> argument
+    in previous examples).  If we try to take the <em>union</em> of two
+    open shapes, the result is empty, as shown below.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.reduce(lines, "union")
+  ]]></rcode>
+    <p>
+    When the <code>A</code> argument is open, by default, it is 
+    reduced using the "flatten" operator rather than the "union"
+    operator, which is the default for closed shapes.
+    The "flatten" operator just combines
+    all of the open shapes into a single grob.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.reduce(lines)
+  ]]></rcode>
+    <p>
+    The "flatten" operator can also be used for the <code>B</code> argument
+    and for open shapes.  The following code provides a simple
+    demonstration.  The segments grob is the same as in the last example,
+    but we subtract a circle grob that draws two circles.
+    We specify <code>reduceB = "flatten"</code> so that the two circles
+    are reduced to a list of two sets of coordinates (one for each circle)
+    and we specify
+    <code>fillB = "evenodd"</code> so that the flattened circles
+    are interpreted using an even-odd fill rule (so the inner circle
+    creates a hole in the outer circle).  The result is that
+    we subtract a donut from the two line segments.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+lines <- segmentsGrob(0:1, 0, 1:0, 1)
+circle <- circleGrob(1, 1, r = c(.3, .1), 
+                     default.units = "in", gp=gpar(fill = NA))
+grid.draw(circle)
+grid.draw(lines)
+  ]]></rcode>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(lines, circle, "minus", reduceB = "flatten", fillB = "evenodd")
+  ]]></rcode>
+    <h3>The <code>trim()</code> function</h3>
+    <p>
+    The 'gridGeometry' package also has a <code>trim()</code> function
+    for extracting subsets of open shapes.  For example,
+    the following code extracts a subset of a line segment starting
+    from .2 of the distance along the segment at ending at 
+    halfway along the line segment.  The original line is drawn
+    in grey and the subset is drawn in (thick) black.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+line <- segmentsGrob(.2 ,.2, .8, .8, gp=gpar(lwd=2, col="grey"))
+grid.draw(line)
+grid.trim(line, .2, .5, gp=gpar(lwd=5))
+  ]]></rcode>
+    <p>
+    The <code>grid.trim()</code> function has also been updated
+    to handle grobs that draw more than one shape:
+    all shapes are trimmed using the same set of <code>from</code>
+    and <code>to</code> arguments.  For example, the following
+    code trims a segments grob that draws two line segments,
+    using the same <code>from</code> and <code>to</code> 
+    as in the previous example.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+lines <- segmentsGrob(c(.2, .4), .2, c(.6, .8), .8,
+                      gp=gpar(lwd=2, col="grey"))
+grid.draw(lines)
+grid.trim(lines, .2, .5, gp=gpar(lwd=5))
+  ]]></rcode>
+    <p>
+    The following code shows a more complex example where we trim
+    a gTree that has the segments grob as its child, plus a circle
+    grob, plus another gTree that has two lines grobs as its children.
+    Again, all children are trimmed using the same set of 
+    <code>from</code> and <code>to</code> arguments.
+    This also shows that closed shapes, like the circle, produce
+    no output when trimmed. Only the open shapes are include in the
+    result.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+gt <- gTree(children=gList(lines,
+                           circleGrob(),
+                           gTree(children=gList(linesGrob(c(.2, .2, .4),
+                                                          c(.6, .8, .8)),
+                                                linesGrob(c(.6, .8, .8),
+                                                          c(.2, .2, .4))))),
+            gp=gpar(lwd=2, col="grey", fill=NA))
+grid.draw(gt)
+grid.trim(gt, .2, .5, gp=gpar(lwd=5))
+  ]]></rcode>
+    <h2>
+      <a name="gridinternals">4. More information about the changes to <code>grobCoords()</code></a>
+    </h2>
+    <p>
+    The main change to the 'grid' functions <code>grobCoords()</code> 
+    and <code>grobPoints()</code> is that they now return more complex 
+    values.  This section describes the format of those data structures
+    for anyone who wants to write code that either generates or
+    consumes these new values.
+  </p>
+    <p>
+    There are three new classes of object:  
+  </p>
+    <ul>
+      <li>
+        <p>
+        "GridCoords" is a list with numeric components <code>x</code>
+        and <code>y</code>.  
+      </p>
+        <p>
+        This represents a set of coordinates that describe a simple shape
+        or part of a more complex shape.
+      </p>
+        <p>
+        A "GridCoords" object can be generated with the 
+        <code>gridCoords()</code> function, which takes <code>x</code>
+        and <code>y</code> as arguments.
+      </p>
+        <rcode><![CDATA[
+gc <- gridCoords(x=1:4, y=4:1)
+gc
+      ]]></rcode>
+      </li>
+      <li>
+        <p>
+        "GridGrobCoords" is a list of one or more "GridCoords".        
+      </p>
+        <p>
+        This represents the shapes that are described by a 'grid' grob.
+      </p>
+        <p>
+        The list can have names to indicate which "GridCoords" belong
+        to the same shape (e.g., a single path consisting of two concentric
+        circles).  
+        The list also has a <code>"name"</code> attribute and 
+        may have a <code>rule</code> attribute.
+      </p>
+        <p>
+        A "GridGrobCoords" object can be generated with the
+        <code>gridGrobCoords()</code> function, which takes a
+        list of "GridCoords" and a <code>name</code> argument
+        and an optional <code>rule</code> argument.
+      </p>
+        <rcode><![CDATA[
+ggc <- gridGrobCoords(list("1"=gc), name="A")
+ggc
+      ]]></rcode>
+      </li>
+      <li>
+        <p>
+        "GridGTreeCoords" is a list of one or more "GridGrobCoords" or
+        "GridGTreeCoords".
+      </p>
+        <p>
+        This represents the shapes that are described by a 'grid' gTree.
+      </p>
+        <p>
+        The list has a <code>"name"</code> attribute.
+      </p>
+        <p>
+        A "GridGTreeCoords" object can be generated with the
+        <code>GridGTreeCoords()</code> function, which takes a
+        list of "GridGrobCoords" or "GridGTreeCoords" objects
+        and a <code>name</code> argument.
+      </p>
+        <rcode><![CDATA[
+ggtc <- gridGTreeCoords(list(ggc), name="B")
+ggtc
+ggtc2 <- gridGTreeCoords(list(ggtc, ggc), name="C")
+ggtc2
+      ]]></rcode>
+      </li>
+    </ul>
+    <p>
+    The reason for introducing these more complex structures is that
+    more information about the original grob or gTree is retained
+    in the <code>grobCoords()</code> result.  This makes it possible
+    to identify which coordinates correspond to which shape within
+    the grob or gTree.  The <a href="#discussion">Discussion</a> 
+    mentions one example where this used within 'grid' itself
+    (to resolve pattern fills).
+  </p>
+    <h2>
+      <a name="gridgeometryinternals">5. More information about the changes to 'gridGeometry'</a>
+    </h2>
+    <p>
+    The 'gridGeometry' package provides an interface between the 'grid'
+    package and the 'polyclip' package.   This requires converting
+    from a 'grid' grob
+    to a list of xy-lists that the 'polyclip' package can work with (and
+    back again).
+  </p>
+    <p>
+    In R versions prior to 4.2.0, the <code>grobCoords()</code> function
+    generated a list of xy-lists as its output, so 
+    the result from <code>grobCoords()</code> could be fed
+    directly to functions in the 'polyclip' package.
+    From R 4.2.0, the result from <code>grobCoords()</code> is more complex,
+    so 'gridGeometry' has some additional functions to 
+    to convert <code>grobCoords()</code> output to a list of xy-lists.
+  </p>
+    <p>
+      <!-- pdflatex diagram.tex; convert diagram.pdf diagram.png -->
+      <img src="diagram.png"/>
+    </p>
+    <p>
+    The <code>grid.polyclip()</code> function and the
+    <code>grid.reduce()</code> function accept 'grid' grobs
+    and return 'grid' grobs.  This is the simplest user interface.
+  </p>
+    <p>
+    The <code>xyListFromGrob()</code> function converts a grob
+    into a list of xy-lists.  It first converts a grob
+    to a "GridGrobCoords" (or "GridGTreeCoords") object using 
+    <code>grobCoords()</code>.
+    The "GridGrobCoords" (or "GridGTreeCoords") object is then
+    reduced to a list of xy-lists either by "flatten"ing all of the
+    "GridCoords" from the grob to a single list or by 
+    combining shapes (one or more "GridCoords" from the same grob)
+    using <code>polyclip::polyclip()</code> and the operator specified
+    in <code>reduceA</code> or <code>reduceB</code>.
+    A gTree reduces each of its  children and then combines the
+    reduced children together.
+    This function provides another way to enter the 'polyclip'
+    world, starting from a 'grid' grob.
+  </p>
+    <p>
+    The functions <code>xyListToPath()</code>, 
+    <code>xyListtoPolygon()</code>, and
+    <code>xyListToLine()</code> convert back from a list of xy-lists to a grob.
+    There may be more than one xy-list, in which case, 
+    <code>xyListToPolygon()</code> creates a grob that draws a 
+    separate polygon for each xy-list,
+    <code>xyListToPath()</code> creates a grob that draws a single
+    path (using <code>rule</code> to determine the interior of the path),
+    and <code>xyListToLine()</code> creates a grob that draws a separate line
+    for each xy-list.
+    These functions allow the user to return from the 'polyclip'
+    world back to the world of 'grid' grobs.
+  </p>
+    <p>
+    The <code>polyclip()</code> function takes 
+    a list of xy-lists and returns a list of xy-lists.
+    This allows the user to perform calculations in the 'polyclip'
+    world.  For example, we can use <code>xyListFromGrob()</code> to
+    generate coordinates from a closed 'grid'
+    grob, but then work with them as if they are coordinates from an
+    open shape.
+  </p>
+    <h3>Fill rules</h3>
+    <p>
+    When a list of xy-lists is fed to <code>polyclip::polyclip()</code>,
+    a fill rule is specified to determine the interior of the shape
+    that is described by the list of xy-lists.
+    When we convert a grob to a list of xy-lists, the fill rule may
+    be included in the <code>grobCoords()</code> result (e.g.,
+    if we are converting a path grob), but it may not.
+    The fill rule that gets sent to <code>polyclip::polyclip()</code>
+    is determined as follows:  if the user specifies 
+    <code>fillA</code> or <code>fillB</code> explicitly, that fill
+    rule is used;  otherwise, if the <code>grobCoords()</code> result
+    contains a fill rule, that is used;  otherwise the fill rule is
+    "nonzero" (the 'polyclip' way of saying "winding").
+    Note that this is different from the default of "evenodd" that
+    <code>polyclip::polyclip()</code> itself uses.
+  </p>
+    <h3>Combinations of open and closed shapes</h3>
+    <p>
+    The <code>grobCoords()</code> function has a <code>closed</code>
+    argument to indicate whether we want the coordinates of a closed
+    shape or an open shape.  
+    From R 4.3.0, and in 'gridGeometry' &gt;= 0.3-1, where it can
+    be determined that the grob is open, <code>closed</code> defaults
+    to <code>FALSE</code>.  Otherwise, <code>closed</code> defaults
+    to <code>TRUE</code>.
+  </p>
+    <p>
+    When we ask for the coordinates from a polygon grob,
+    we get the coordinates of the polygon if <code>closed=TRUE</code>, but
+    we get nothing ("empty" coordinates) if <code>closed=FALSE</code>.
+    Similarly, if we ask for the coordinates from a line grob,
+    we get the coordinates of the line if <code>closed=FALSE</code>, but
+    we get nothing if <code>closed=TRUE</code>.    
+    A gTree presents a problem because it can contain grobs that draw
+    both open and closed shapes.
+  </p>
+    <p>
+    The <code>grid.polyclip()</code> function handles this problem 
+    by generating open coordinates for <code>A</code> 
+    and combining them with <code>B</code>
+    and then also generating closed coordinates
+    for <code>A</code> 
+    and combining them with <code>B</code>.  
+    The final result is then a gTree that
+    combines the open result and the closed result.
+  </p>
+    <p>
+    The following code shows an example where <code>A</code> is a 
+    gTree consisting of a line and a rectangle and <code>B</code>
+    is a circle grob (and the operator is "minus").  
+    The result is a combination of the (closed)
+    rectangle minus the (closed) circle and the (open) line
+    minus the (closed) circle.
+  </p>
+    <rcode fig.width="2" fig.height="2"><![CDATA[
+grid.polyclip(gTree(children=gList(rectGrob(width=.5, height=.5),
+                                   segmentsGrob(0, .5, 1, .5))),
+              circleGrob(r=.2),
+              "minus",
+              gp=gpar(fill="grey"))
+  ]]></rcode>
+    <p>
+    Note that <code>B</code> cannot be open, 
+    a <a href="http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Classes/ClipperBase/Methods/AddPaths.htm">limitation imposed by the underlying 
+    Clipper library</a> (<a href="#clipper">Johnson, 2019</a>).
+    On the other hand, the Clipper library does allow <code>A</code>
+    to be a combination of open and closed shapes 
+    (though <a href="http://www.angusj.com/delphi/clipper/documentation/Docs/Units/ClipperLib/Types/ClipType.htm">the semantics of that can be tortuous</a>),
+    whereas 'gridGeometry' only ever calls <code>polyclip::polyclip()</code>
+    with either <code>A</code> entirely closed or
+    <code>A</code> entirely open.
+  </p>
+    <h3>To reduce or not to reduce</h3>
+    <p>
+    Another question is whether, although we have to do some reducing for
+    complex grobCoords() results (e.g., from a gTree), 
+    do we need to reduce coords from simple
+    collections of shapes, e.g., 
+    a rect grob that draws multiple shapes?  
+    'polyclip' (and the Clipper
+    library) can handle a list of xy-lists.
+    The answer to that is that we CAN simply pass through a list 
+    of xy-lists (one per shape) by specifying op="flatten" !
+    That is not the *default* value for closed shapes, but we
+    can explicitly specify it if we want to!
+    NOTE that if we pass the list of xy-lists to 'polyclip',
+    we still have to give it a fill rule, AND then we have to 
+    provide a fill rule when turning the result back into a grob.
+  </p>
+    <h2>
+      <a name="discussion">6. Discussion</a>
+    </h2>
+    <p>
+    The main idea behind the changes to grobCoords is to
+    provide more detailed and comprehensive information
+    about the coordinates for a 'grid' grob.
+    We want to retain information about where the sets of 
+    coordinates came from through both a hierarchical structure
+    and labelling of components within that structure.
+  </p>
+    <p>
+    The 'gridGeometry' package makes some use of that extra information,
+    e.g., to determine the fill rule that it sends to 'polyclip' functions.
+  </p>
+    <p>
+    The grobCoords() function is also
+    used by 'grid' itself for resolving fill patterns
+    (by making use of the names on <code>grobCoords()</code> output),
+    as described in the vecpat tech report.
+    Here the extra information is important because it allows
+    us to resolve a pattern relative to individual shapes within a grob
+    as well as relative to the bounding box around all shapes within a
+    grob.
+  </p>
+    <p>
+    It is also hoped that the extra information may prove useful to 
+    code writers and package developers that make use of 
+    <code>grobCoords()</code> output.
+  </p>
+    <h2>
+      <a name="requirements">7. Technical requirements</a>
+    </h2>
+    <p>
+    The examples and discussion in this report relate to 
+    R version 4.2.0 and 'gridGeometry' version 0.3-1.
+  </p>
+    <p>
+    This report was generated within a Docker container
+    (see <a href="#Resources">Resources</a> section below).
+  </p>
+    <h2>
+      <a name="Resources">8. Resources</a>
+    </h2>
+    <ul>
+      <li>
+      The <a href="coords.cml">raw source file</a> for this
+      report, a <a href="coords.xml">valid XML</a>
+      transformation of the source file, a <a href="coords.Rhtml">'knitr' document</a> generated from
+      the XML file, 
+      two <a href="toc.R">R</a> <a href="bib.R">files</a> and
+      the <a href="coords.bib">bibtex file</a>
+      that are used to generate the table of contents and reference sections,
+      two <a href="common.xsl">XSL</a> <a href="knitr.xsl">files</a> and an 
+      <a href="knit.R">R file</a> that are used to transform the XML to
+      the 'knitr' document, and a <a href="Makefile">Makefile</a> that
+      contains code for the other transformations and coordinates
+      everything.  
+      These materials are also available
+      on <a href="https://github.com/pmur002/coords-report/releases/tag/v1">github</a>.
+    </li>
+      <li>
+      This report was generated within a 
+      <a href="https://www.docker.com/">Docker</a> container.
+      The Docker command to build the report is included in the Makefile above.
+      The Docker image for the container is available from
+      <a href="https://hub.docker.com/r/pmur002/coords-report/">Docker Hub</a>;
+      alternatively, the image can be rebuilt from its 
+      <a href="Dockerfile">Dockerfile</a>.
+    </li>
+    </ul>
+    <h2>How to cite this report</h2>
+    <p>
+    Murrell, P. (2022). "Constructive Geometry for Complex Grobs" 
+    Technical Report 2022-??, Department of Statistics, The University of Auckland. 
+    Version 1.
+    [ <a href="how-to-cite.bib">bib</a> |
+      <a href="http://dx.doi.org/">DOI</a> | 
+      <a href="https://stattech.blogs.auckland.ac.nz/">http</a> ]
+  </p>
+    <h2>
+      <a name="references">9. References</a>
+    </h2>
+    <dl><dt>
+[<a name="clipper">Johnson, 2019</a>]
+</dt>
+<dd>
+Johnson, A. (2019).
+ Clipper - an open source freeware library for clipping and offsetting
+  lines and polygons.
+ <a href="http://www.angusj.com/delphi/clipper.php">http://www.angusj.com/delphi/clipper.php</a>.
+ Accessed: 2019-02-27.
+[ <a href="coords-bib_bib.html#clipper">bib</a> ]
+
+</dd>
+
+
+<dt>
+[<a name="pkg:polyclip">Johnson and Baddeley, 2019</a>]
+</dt>
+<dd>
+Johnson, A. and Baddeley, A. (2019).
+ <em>polyclip: Polygon Clipping</em>.
+ R package version 1.10-0.
+[ <a href="coords-bib_bib.html#pkg:polyclip">bib</a> | 
+<a href="https://CRAN.R-project.org/package=polyclip">http</a> ]
+
+</dd>
+
+
+<dt>
+[<a name="pkg:gridGeometry">Murrell, 2022</a>]
+</dt>
+<dd>
+Murrell, P. (2022).
+ <em>gridGeometry: Polygon Geometry in 'grid'</em>.
+ https://github.com/pmur002/gridgeometry,
+  https://stattech.wordpress.fos.auckland.ac.nz/2019/03/04/2019-01-a-geometry-engine-interface-for-grid/.
+[ <a href="coords-bib_bib.html#pkg:gridGeometry">bib</a> ]
+
+</dd>
+
+
+<dt>
+[<a name="pkg:rsvg">Ooms, 2022</a>]
+</dt>
+<dd>
+Ooms, J. (2022).
+ <em>rsvg: Render SVG Images into PDF, PNG, (Encapsulated)
+  PostScript, or Bitmap Arrays</em>.
+ R package version 2.3.1.
+[ <a href="coords-bib_bib.html#pkg:rsvg">bib</a> | 
+<a href="https://CRAN.R-project.org/package=rsvg">http</a> ]
+
+</dd>
+
+
+<dt>
+[<a name="pkg:grImport2">Potter and Murrell, 2019</a>]
+</dt>
+<dd>
+Potter, S. and Murrell, P. (2019).
+ <em>grImport2: Importing 'SVG' Graphics</em>.
+ R package version 0.2-0.
+[ <a href="coords-bib_bib.html#pkg:grImport2">bib</a> | 
+<a href="https://CRAN.R-project.org/package=grImport2">http</a> ]
+
+</dd>
+
+
+<dt>
+[<a name="R">R Core Team, 2019</a>]
+</dt>
+<dd>
+R Core Team (2019).
+ <em>R: A Language and Environment for Statistical Computing</em>.
+ R Foundation for Statistical Computing, Vienna, Austria.
+[ <a href="coords-bib_bib.html#R">bib</a> | 
+<a href="https://www.R-project.org/">http</a> ]
+
+</dd>
+</dl>
+    <hr/>
+    <p><a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img class="CC" alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png"/></a><br/><span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">This document</span>
+    by <span xmlns:cc="http://creativecommons.org/ns#" property="cc:attributionName">Paul
+    Murrell</span> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative
+    Commons Attribution 4.0 International License</a>.
+  </p>
+  </body>
+</html>
